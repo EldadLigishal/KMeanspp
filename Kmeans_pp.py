@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import sys
-from mykmeanssp import fit
+import mykmeanssp as km
 
 
 def merge(file1, file2):
@@ -47,7 +47,7 @@ def execute(k, maxitr, epsilon, input_filename1, input_filename2):
             index = np.random.choice(1, length, p=prob[j])
             centroids[i] = input_matrix[index]
         i += 1
-    fit(k,maxitr,epsilon,d,n,input_matrix,centroids);
+    km.fit(k,maxitr,epsilon,d,n,input_matrix,centroids);
 
 
 # main
@@ -56,11 +56,10 @@ def execute(k, maxitr, epsilon, input_filename1, input_filename2):
 # sys.argv[0] is the program i.e. the script name.
 input_argv = sys.argv
 input_argc = len(sys.argv)
-# todoo we need to valid(input_args)
 if input_argc == 6:
     # update max_itr if needed
     # (k, maxItr, epsilon, inputFile1, inputFile2)
-    execute(int(input_argv[1]), int(input_argv[2]), int(input_argv[3]), input_argv[4], input_argv[5])
+    execute(int(input_argv[1]), int(input_argv[2]), float(input_argv[3]), input_argv[4], input_argv[5])
 else:
     # (k, epsilon, inputFile1, inputFile2)
-    execute(int(input_argv[1]), 300, int(input_argv[2]), input_argv[3], input_argv[4])
+    execute(int(input_argv[1]), 300, float(input_argv[2]), input_argv[3], input_argv[4])

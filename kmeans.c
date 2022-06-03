@@ -1,29 +1,25 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <assert.h>
-#include "math.h"
-#include <float.h>
-#include PY_SSIZE_T_CLEAN
+#include <string.h>
 #include <Python.h>
+#include <math.h>
 
 #define LINESIZE 1000
+#define PY_SSIZE_T_CLEAN
 
 void resetMat(int row,int col,double** mat);
 double** createMat(int col, int row);
-int calculateRows(char* fileName);
-int calculateCol(char* fileName);
-void fillMat(char* fileName,double** inputMat);
 void freeMemory(double** matrix ,int n);
 void update(double* toChage,double* GroupOfClusters,double** inputMat);
 void sumVectors(double* vector1,double* vector2);
 void avgVectors(double* vector1,int cnt);
-void algorithm(double** clusters, double ** inputMat, double ** GroupOfClusters);
 int minIndex(double** clusters, double* victor);
 double distance(double* vector1 , double* vector2);
 double calculateNorm(double* vector);
-int normMat(double** matrix);
-double** calculateCentroids(int k, int max_itr, double epsilon, int d, int n, double** matrix, double** clusters);
+int normMat(double** matrix, double epsilon);
+double** calculateCentroids(double epsilon, double** inputMat, double** clusters);
+void algorithm(double** clusters, double** inputMat, double** GroupOfClusters, double epsilon);
 
 
 /*
@@ -32,29 +28,70 @@ double** calculateCentroids(int k, int max_itr, double epsilon, int d, int n, do
  *  d := number of column of an input file.
  *  n := number of line of an input file , = number of vectors.
  */
-int max_itr1;
-int k1;
-int d1;
-int n1;
+int max_itr;
+int k;
+int n;
+int d; /* need to update */
 
-static PyObject* fit(PyObject *self, PyObject *args) {
-    int max_itr;
-    int k;
-    int d;
-    int n;
+/*
+ * this actually defines the fit function using a wrapper C API function
+ * it has input PyObject *args from Python.
+ */
+static PyObject* fit(PyObject *self, PyObject *args){
     double epsilon;
-    double** matrix;
-    double** clusters;
+    PyObject *_inputMat;
+    PyObject *_clusters;
+    pyObject *line;
+    PyObject *obj;
+    double **inputMat;
+    double **clusters;
 
-    if (!PyArg_ParseTuple(args, "iidiiOO", &k, &max_itr, &epsilon, &d, &n, &matrix, &clusters)) {
+    /* This parses the Python arguments into a int (i) variable named k ,
+     *  int (i) variable named max_itr, double (d) variable named epsilon,
+     *  int (i) variable named n, double** (O) variable named input_matrix
+     *  double** (O) variable named clusters .
+     */
+    if (!PyArg_ParseTuple(args, "iidiiOO", &k, &max_itr, &epsilon, &n, &d, &_inputMat, &_clusters)) {
         return NULL;
     }
+    if (!PyList_Check(_inputMat) || !PyList_Check(_clusters)){
+        return NULL;
+    }
+    if(k>n){
+        printf("Invalid Input! \n");
+        return 0;
+    }
 
-    max_itr1 = max_itr;
-    k1 = k;
-    d1 = d;
-    n1 = n;
-    return Py_BuildValue("i", main(k, max_itr, epsilon, d, n, matrix, clusters))
+    inputMat = createMat(n, d);
+    assert(inputMat!=NULL);
+
+    for (i = 0; i < n; i++){
+        line = PyList_GetItem(_inputMat, i);
+        for(j = 0 ; j < d ; j++){
+            obj = PyList_GetItem(line, j);
+            inputMat[i][j] = PyFloat_AsDouble(obj);
+        }
+    }
+
+    /*
+     *  initialize centroids µ1, µ2, ... , µK
+     */
+    clusters = createMat(k,d);
+    assert(clusters != NULL);
+
+    for (i = 0; i < k; i++) {
+        line = PyList_GetItem(_clusters, i);
+        for(j = 0 ; j < d ; j++) {
+            obj = PyList_GetItem(line, j);
+            Mu[index][jindex] = PyFloat_AsDouble(obj);
+        }
+    }
+
+    _clusters = Py_BuildValue("O", calculateCentroids(epsilon, input_matrix, clusters));
+
+    freeMemory(inputMat, n);
+    freeMemory(clusters,k);
+    return _clusters;
 }
 
 static PyMethodDef myMethods[] = {
@@ -80,33 +117,19 @@ PyMODINIT_FUNC PyInit_mykmeanssp(void) {
     return m;
 }
 
-double** calculateCentroids(int k, int max_itr, double epsilon, int d, int n, double** inputMat, double** clusters) {
+double** calculateCentroids(double epsilon, double** inputMat, double** clusters) {
     int i,j;
-    char* useless;
     /*
      *  groupOfClusters := group of clusters by S1,...,SK, each cluster Sj is represented by it’s
      *    centroid  which is the mean µj ∈ Rd of the cluster’s members.
      */
     double** groupOfClusters = NULL;
-
-    /*
-     * bug
-     */
-    if(k>n){
-        printf("Invalid Input! \n");
-        return 0;
-    }
-
-    assert(inputMat!=NULL);
-    assert(clusters != NULL);
-
     /*
      *  groupOfClusters := [[0.0,0.0,0.0,0,0,0.0]
      *                     ,[0.0,0.0,0.0,0,0,0.0]]
-    */
+     */
     groupOfClusters = createMat(k, n);
     assert(groupOfClusters != NULL);
-
     for(i=0; i<k; i++){
         for(j=0;j<n;j++){
             groupOfClusters[i][j] = 0.0;
@@ -115,10 +138,9 @@ double** calculateCentroids(int k, int max_itr, double epsilon, int d, int n, do
     algorithm(clusters,inputMat,groupOfClusters, epsilon);
 
     /*
-     * step 4: freeing memory
+     * freeing memory
      */
     freeMemory(groupOfClusters, k);
-    
     return inputMat;
 }
 
@@ -127,18 +149,17 @@ void algorithm(double** clusters, double** inputMat, double** GroupOfClusters, d
     int x_i;
     int m_i;
     int index;
-    while (numOfItr < max_itr1){
+    while (numOfItr < max_itr){
         if(normMat(clusters, epsilon)==1){
-            printf("break\n");
             break;
         }
-        resetMat(k1,n1,GroupOfClusters);
+        resetMat(k,n,GroupOfClusters);
         /*
          * for xi, 0 < i ≤ N:
          *  Assign xi to the closest cluster Sj : argmin_Sj(xi − µj )^2 , ∀j 1 ≤ j ≤ K
          *  0 < index ≤ K
          */
-        for(x_i=0;x_i<n1;x_i++){
+        for(x_i=0;x_i<n;x_i++){
             index = minIndex(clusters, inputMat[x_i]);
             GroupOfClusters[index][x_i] = 10;
         }
@@ -146,7 +167,7 @@ void algorithm(double** clusters, double** inputMat, double** GroupOfClusters, d
          * for µk, 0 < i ≤ K:
          *  we want to change clusters[i] , 0< i <= k
          */
-        for(m_i=0;m_i<k1;m_i++){
+        for(m_i=0;m_i<k;m_i++){
             update(clusters[m_i], GroupOfClusters[m_i], inputMat);
         }
         numOfItr++;
@@ -155,7 +176,7 @@ void algorithm(double** clusters, double** inputMat, double** GroupOfClusters, d
 }
 int normMat(double** matrix, double epsilon){
     int i;
-    for(i=0;i<k1;i++){
+    for(i=0;i<k;i++){
         if(calculateNorm(matrix[i]) > epsilon){
             return 0;
         }
@@ -166,7 +187,7 @@ double calculateNorm(double* vector){
     int i;
     double sum=0.0;
     double value;
-    for(i=0;i<d1;i++){
+    for(i=0;i<d;i++){
         sum = sum + pow(vector[i],2.0);
     }
     value = sqrt(sum);
@@ -185,29 +206,31 @@ void resetMat(int row,int col,double** mat){
 
 void sumVectors(double* vector1,double* vector2){
     int i;
-    for(i=0;i<d1;i++){
+    for(i=0;i<d;i++){
         vector1[i] = vector1[i] + vector2[i];
     }
 }
+
 void avgVectors(double* vector1,int cnt){
     int i;
     if(cnt == 0){
         return;
     }
-    for(i=0;i<d1;i++){
+    for(i=0;i<d;i++){
         vector1[i] = vector1[i]/cnt;
     }
 }
+
 void update(double* toChage,double* GroupOfClusters,double** inputMat){
     int i;
     int cnt=0;
     /*
      * fill tochange with 0.0
      */
-    for(i=0;i<d1;i++){
+    for(i=0;i<d;i++){
         toChage[i]= 0.0;
     }
-    for(i=0;i<n1;i++){
+    for(i=0;i<n;i++){
         if(GroupOfClusters[i] > 5){
             cnt++;
             sumVectors(toChage,inputMat[i]);
@@ -222,7 +245,7 @@ int minIndex(double** clusters, double* victor){
     double tempMinDistance;
     int i;
 
-    for(i=0;i<k1;i++){
+    for(i=0;i<k;i++){
         tempMinDistance = distance(victor, clusters[i]);
         if(tempMinDistance<minDistance) {
             minIndex = i;
@@ -234,7 +257,7 @@ int minIndex(double** clusters, double* victor){
 double distance(double* vector1 , double* vector2){
     int i;
     double sum=0.0;
-    for(i=0; i < d1; i++){
+    for(i=0; i < d; i++){
         /*
          * argmin_Sj(xi − µj)^2
          */
@@ -242,7 +265,6 @@ double distance(double* vector1 , double* vector2){
     }
     return sum;
 }
-
 
 /*
  *  freeing 2-dimensional arrays

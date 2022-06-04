@@ -4,6 +4,7 @@
 #include <string.h>
 #include <Python.h>
 #include <math.h>
+#include <float.h>
 
 #define LINESIZE 1000
 #define PY_SSIZE_T_CLEAN
@@ -41,10 +42,12 @@ static PyObject* fit(PyObject *self, PyObject *args){
     double epsilon;
     PyObject *_inputMat;
     PyObject *_clusters;
-    pyObject *line;
+    PyObject *line;
     PyObject *obj;
     double **inputMat;
     double **clusters;
+    int i;
+    int j;
 
     /* This parses the Python arguments into a int (i) variable named k ,
      *  int (i) variable named max_itr, double (d) variable named epsilon,
@@ -83,11 +86,11 @@ static PyObject* fit(PyObject *self, PyObject *args){
         line = PyList_GetItem(_clusters, i);
         for(j = 0 ; j < d ; j++) {
             obj = PyList_GetItem(line, j);
-            Mu[index][jindex] = PyFloat_AsDouble(obj);
+            Mu[index][jindex] = PyFloat_AsDouble(obj); // index and jindex are not declared
         }
     }
 
-    _clusters = Py_BuildValue("O", calculateCentroids(epsilon, input_matrix, clusters));
+    _clusters = Py_BuildValue("O", calculateCentroids(epsilon, inputMat, clusters));
 
     freeMemory(inputMat, n);
     freeMemory(clusters,k);
@@ -160,7 +163,7 @@ void algorithm(double** clusters, double** inputMat, double** GroupOfClusters, d
          *  0 < index ≤ K
          */
         for(x_i=0;x_i<n;x_i++){
-            index = minIndex(clusters, inputMat[x_i]);
+            index = minIndex(clusters, inputMat[x_i]);              // we need this??????
             GroupOfClusters[index][x_i] = 10;
         }
         /*

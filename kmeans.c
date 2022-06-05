@@ -86,7 +86,7 @@ static PyObject* fit(PyObject *self, PyObject *args){
         line = PyList_GetItem(_clusters, i);
         for(j = 0 ; j < d ; j++) {
             obj = PyList_GetItem(line, j);
-            Mu[index][jindex] = PyFloat_AsDouble(obj); // index and jindex are not declared
+            clusters[i][j] = PyFloat_AsDouble(obj);
         }
     }
 

@@ -32,7 +32,7 @@ void algorithm(double** clusters, double** inputMat, double** GroupOfClusters, d
 int max_itr;
 int k;
 int n;
-int d; /* need to update */
+int d;
 
 /*
  * this actually defines the fit function using a wrapper C API function
@@ -43,7 +43,8 @@ static PyObject* fit(PyObject *self, PyObject *args){
     PyObject *_inputMat;
     PyObject *_clusters;
     PyObject *line;
-    PyObject *obj;
+    PyObject *result;
+    double obj;
     double **inputMat;
     double **clusters;
     int i;
@@ -62,7 +63,7 @@ static PyObject* fit(PyObject *self, PyObject *args){
     }
     if(k>n){
         printf("Invalid Input! \n");
-        return 0;
+        return NULL;
     }
 
     inputMat = createMat(n, d);
@@ -71,8 +72,8 @@ static PyObject* fit(PyObject *self, PyObject *args){
     for (i = 0; i < n; i++){
         line = PyList_GetItem(_inputMat, i);
         for(j = 0 ; j < d ; j++){
-            obj = PyList_GetItem(line, j);
-            inputMat[i][j] = PyFloat_AsDouble(obj);
+            obj = PyFloat_AsDouble(PyList_GetItem(line, j));
+            inputMat[i][j] = obj;
         }
     }
 
@@ -84,29 +85,39 @@ static PyObject* fit(PyObject *self, PyObject *args){
 
     for (i = 0; i < k; i++) {
         line = PyList_GetItem(_clusters, i);
-        for(j = 0 ; j < d ; j++) {
-            obj = PyList_GetItem(line, j);
-            clusters[i][j] = PyFloat_AsDouble(obj);
+        for(j=0 ; j<d ; j++) {
+            obj = PyFloat_AsDouble(PyList_GetItem(line, j));
+            clusters[i][j] = obj;
         }
     }
 
     clusters = calculateCentroids(epsilon, inputMat, clusters);
     freeMemory(inputMat,n);
 
-    for (i = 0; i < k; i++) {
+    result = PyList_New(k);
+    if(result == NULL){
+        return NULL;
+    }
+    for(i = 0 ; i < k; i++){
         line = PyList_New(d);
-        for(j = 0 ; j < d ; j++) {
-            obj = PyList_SetItem(line,j,PyFloat_FromDouble(clusters[i][j]));
+        if(line==NULL){
+            return NULL;
         }
-        PyList_SetItem(_clusters,i,line);
+        for(j = 0 ; j < d ; j++) {
+            /*
+             * PyList_SetItem(line,j,PyFloat_FromDouble(clusters[i][j]));
+             */
+            PyList_SetItem(line,j,Py_BuildValue("d",clusters[i][j]));
+        }
+        PyList_SetItem(result, i, line);
     }
 
     freeMemory(clusters,k);
-    return Py_BuildValue("O",_clusters);
+    return result;
 }
 
 static PyMethodDef myMethods[] = {
-        { "fit", 
+        { "fit",
         (PyCFunction)fit, METH_VARARGS, PyDoc_STR("Input: Points, Centroids, Iterations and Clusters. Output: Centroids") },
         { NULL, NULL, 0, NULL }
 };

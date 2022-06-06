@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pandas as pd
 import sys
@@ -19,29 +21,31 @@ def merge(file1, file2):
 
 
 def buildCentroids(k, n, input_matrix):
-    centroids = np.zeros(k)
+    centroids = np.zeros((k, len(input_matrix[0])))
+    centroids_index = np.zeros(k)
     # Select µ1 randomly from x1, x2, . . . , xN
     np.random.seed(0)
     random_index = np.random.choice(n, 1)
-    numpy_array = np.array(input_matrix)
     # ERROR: setting an array element with a sequence.
-    centroids[0] = numpy_array[random_index]
-    # we want to print this matrix later
-    centroids_index = np.zeros(k)
+    centroids_index[0] = random_index
+    centroids[0] = input_matrix[random_index]
+
     i = 1
     while i < k:
         d = np.zeros(n)
         # Dl = min (xl − µj)^2 ∀j 1 ≤ j ≤ i
-        for l in range(n):
-            d[l] = step1(i, input_matrix[l], centroids)
-        i += 1
+        for _ in range(n):
+            d[_] = step1(i, input_matrix[_], centroids)
         # randomly select µi = xl, where P(µi = xl) = P(xl)
         prob = np.zeros(n)
         sum_matrix = np.sum(d)
         for j in range(n):
-            prob[j] = step2(d[j], sum_matrix)
-        centroids_index[i] = np.random.choice(n, 1, p=prob)
-        centroids[i] = input_matrix.loc[centroids_index[i]].to_numpy()
+            prob[j] = d[j]/sum_matrix
+       #     prob[j] = step2(d[j], sum_matrix)
+        rand_i = np.random.choice(n, p=prob)
+        centroids_index[i] = rand_i
+        centroids[i] = input_matrix[rand_i]
+        i += 1
 
     # The first line will be the indices of the observations chosen by the K-means++ algorithm
     # as the initial centroids. Observation’s index is given by the first column in each input file.
@@ -50,12 +54,12 @@ def buildCentroids(k, n, input_matrix):
  
 
 def step1(i, vector, matrix):
-    min_vector = np.full(len(vector), sys.maxsize)
+    min_vector = math.pow(np.linalg.norm(np.subtract(vector, matrix[0])), 2)
     for j in range(i):
-        val = np.linalg.norm(np.subtract(vector, matrix[j]))
-        val = np.power(val, 2)
-        if np.greater(min_vector, val):
-            min_vector = val
+        curr_vector = np.linalg.norm(np.subtract(vector, matrix[j]))
+        curr_vector = np.power(curr_vector, 2)
+        if min_vector > curr_vector:
+            min_vector = curr_vector
     return min_vector
 
 
@@ -94,9 +98,9 @@ def execute(k, maxItr, epsilon, input_filename1, input_filename2):
     if (k >= n) or (maxItr < 0) or (k < 0):
         print("Invalid Input! \n")
     # centroids µ1, µ2, ... , µK ∈ R^d where 1<K<N.
-    centroids = buildCentroids(k, n, input_array)
+    centroids = buildCentroids(k, n, input_matrix)
 
-    matrix = km.fit(k, maxItr, epsilon, n, d, input_array, centroids)
+    matrix = km.fit(k, maxItr, epsilon, n, d, input_array, centroids.tolist())
     printMatrix(np.array(matrix))
 
 

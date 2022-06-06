@@ -90,11 +90,19 @@ static PyObject* fit(PyObject *self, PyObject *args){
         }
     }
 
-    _clusters = Py_BuildValue("O", calculateCentroids(epsilon, inputMat, clusters));
+    clusters = calculateCentroids(epsilon, inputMat, clusters);
+    freeMemory(inputMat,n);
 
-    freeMemory(inputMat, n);
+    for (i = 0; i < k; i++) {
+        line = PyList_New(d);
+        for(j = 0 ; j < d ; j++) {
+            obj = PyList_SetItem(line,j,PyFloat_FromDouble(clusters[i][j]));
+        }
+        PyList_SetItem(_clusters,i,line);
+    }
+
     freeMemory(clusters,k);
-    return _clusters;
+    return Py_BuildValue("O",_clusters);
 }
 
 static PyMethodDef myMethods[] = {
@@ -163,7 +171,7 @@ void algorithm(double** clusters, double** inputMat, double** GroupOfClusters, d
          *  0 < index ≤ K
          */
         for(x_i=0;x_i<n;x_i++){
-            index = minIndex(clusters, inputMat[x_i]);              // we need this??????
+            index = minIndex(clusters, inputMat[x_i]);
             GroupOfClusters[index][x_i] = 10;
         }
         /*

@@ -1,119 +1,320 @@
-import math
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <string.h>
+#include <Python.h>
+#include <math.h>
+#include <float.h>
 
-import numpy as np
-import pandas as pd
-import sys
-import mykmeanssp as km
+#define LINESIZE 1000
+#define PY_SSIZE_T_CLEAN
 
-
-def merge(file1, file2):
-    # read a comma-separated values (csv) file into DataFrame.
-    to_merge1 = pd.read_csv(file1, header=None)
-    to_merge2 = pd.read_csv(file2, header=None)
-    to_merge1.rename(columns={list(to_merge1)[0]: "key"}, inplace=True)
-    to_merge2.rename(columns={list(to_merge2)[0]: "key"}, inplace=True)
-    result = pd.merge(to_merge1, to_merge2, on="key")
-    # Sort by the values along either axis.
-    result = result.sort_values("key")
-    # Drop specified labels from rows or columns.
-    result.drop("key", axis="columns", inplace=True)
-    return result.to_numpy()
-
-
-def buildCentroids(k, n, input_matrix):
-    centroids = np.zeros((k, len(input_matrix[0])))
-    centroids_index = np.zeros(k)
-    # Select µ1 randomly from x1, x2, . . . , xN
-    np.random.seed(0)
-    random_index = np.random.choice(n, 1)
-    # ERROR: setting an array element with a sequence.
-    centroids_index[0] = random_index
-    centroids[0] = input_matrix[random_index]
-
-    i = 1
-    while i < k:
-        d = np.zeros(n)
-        # Dl = min (xl − µj)^2 ∀j 1 ≤ j ≤ i
-        for _ in range(n):
-            d[_] = step1(i, input_matrix[_], centroids)
-        # randomly select µi = xl, where P(µi = xl) = P(xl)
-        prob = np.zeros(n)
-        sum_matrix = np.sum(d)
-        for j in range(n):
-            prob[j] = d[j]/sum_matrix
-       #     prob[j] = step2(d[j], sum_matrix)
-        rand_i = np.random.choice(n, p=prob)
-        centroids_index[i] = rand_i
-        centroids[i] = input_matrix[rand_i]
-        i += 1
-
-    # The first line will be the indices of the observations chosen by the K-means++ algorithm
-    # as the initial centroids. Observation’s index is given by the first column in each input file.
-    printIndex(centroids_index)
-    return centroids
- 
-
-def step1(i, vector, matrix):
-    min_vector = math.pow(np.linalg.norm(np.subtract(vector, matrix[0])), 2)
-    for j in range(i):
-        curr_vector = np.linalg.norm(np.subtract(vector, matrix[j]))
-        curr_vector = np.power(curr_vector, 2)
-        if min_vector > curr_vector:
-            min_vector = curr_vector
-    return min_vector
+void resetMat(int row,int col,double** mat);
+double** createMat(int col, int row);
+void freeMemory(double** matrix ,int n);
+void update(double* toChage,double* GroupOfClusters,double** inputMat);
+void sumVectors(double* vector1,double* vector2);
+void avgVectors(double* vector1,int cnt);
+int minIndex(double** clusters, double* victor);
+double distance(double* vector1 , double* vector2);
+double calculateNorm(double* vector);
+int normMat(double** matrix, double epsilon);
+double** calculateCentroids(double epsilon, double** inputMat, double** clusters);
+void algorithm(double** clusters, double** inputMat, double** GroupOfClusters, double epsilon);
 
 
-def step2(vector, sum_matrix):
-    result = np.divide(vector, sum_matrix)
-    return result
+/*
+ *  max_itr := the maximum number of iterations of the K-means algorithm, the default value is 200.
+ *  k := the number of clusters required.
+ *  d := number of column of an input file.
+ *  n := number of line of an input file , = number of vectors.
+ */
+int max_itr;
+int k;
+int n;
+int d;
+
+/*
+ * this actually defines the fit function using a wrapper C API function
+ * it has input PyObject *args from Python.
+ */
+static PyObject* fit(PyObject *self, PyObject *args){
+    double epsilon;
+    PyObject *_inputMat;
+    PyObject *_clusters;
+    PyObject *line;
+    PyObject *result;
+    double obj;
+    double **inputMat;
+    double **clusters;
+    int i;
+    int j;
+
+    /* This parses the Python arguments into a int (i) variable named k ,
+     *  int (i) variable named max_itr, double (d) variable named epsilon,
+     *  int (i) variable named n, double** (O) variable named input_matrix
+     *  double** (O) variable named clusters .
+     */
+    if (!PyArg_ParseTuple(args, "iidiiOO", &k, &max_itr, &epsilon, &n, &d, &_inputMat, &_clusters)) {
+        return NULL;
+    }
+    if (!PyList_Check(_inputMat) || !PyList_Check(_clusters)){
+        return NULL;
+    }
+    if(k>n){
+        printf("Invalid Input! \n");
+        return NULL;
+    }
+
+    inputMat = createMat(n, d);
+    assert(inputMat!=NULL);
+
+    for (i = 0; i < n; i++){
+        line = PyList_GetItem(_inputMat, i);
+        for(j = 0 ; j < d ; j++){
+            obj = PyFloat_AsDouble(PyList_GetItem(line, j));
+            inputMat[i][j] = obj;
+        }
+    }
+
+    /*
+     *  initialize centroids µ1, µ2, ... , µK
+     */
+    clusters = createMat(k,d);
+    assert(clusters != NULL);
+
+    for (i = 0; i < k; i++) {
+        line = PyList_GetItem(_clusters, i);
+        for(j=0 ; j<d ; j++) {
+            obj = PyFloat_AsDouble(PyList_GetItem(line, j));
+            clusters[i][j] = obj;
+        }
+    }
+
+    clusters = calculateCentroids(epsilon, inputMat, clusters);
+    freeMemory(inputMat,n);
+
+    result = PyList_New(k);
+    if(result == NULL){
+        return NULL;
+    }
+    for(i = 0 ; i < k; i++){
+        line = PyList_New(d);
+        if(line==NULL){
+            return NULL;
+        }
+        for(j = 0 ; j < d ; j++) {
+            /*
+             * PyList_SetItem(line,j,PyFloat_FromDouble(clusters[i][j]));
+             */
+            PyList_SetItem(line,j,Py_BuildValue("d",clusters[i][j]));
+        }
+        PyList_SetItem(result, i, line);
+    }
+
+    freeMemory(clusters,k);
+    return result;
+}
+
+static PyMethodDef myMethods[] = {
+        { "fit",
+        (PyCFunction)fit, METH_VARARGS, PyDoc_STR("Input: Points, Centroids, Iterations and Clusters. Output: Centroids") },
+        { NULL, NULL, 0, NULL }
+};
+
+static struct PyModuleDef mykmeanssp = {
+        PyModuleDef_HEAD_INIT,
+        "mykmeanssp",
+        "kmeans module",
+        -1,
+        myMethods
+};
+
+PyMODINIT_FUNC PyInit_mykmeanssp(void) {
+    PyObject *m;
+    m = PyModule_Create(&mykmeanssp);
+    if (!m) {
+        return NULL;
+    }
+    return m;
+}
+
+double** calculateCentroids(double epsilon, double** inputMat, double** clusters) {
+    int i,j;
+    /*
+     *  groupOfClusters := group of clusters by S1,...,SK, each cluster Sj is represented by it’s
+     *    centroid  which is the mean µj ∈ Rd of the cluster’s members.
+     */
+    double** groupOfClusters = NULL;
+    /*
+     *  groupOfClusters := [[0.0,0.0,0.0,0,0,0.0]
+     *                     ,[0.0,0.0,0.0,0,0,0.0]]
+     */
+    groupOfClusters = createMat(k, n);
+    assert(groupOfClusters != NULL);
+    for(i=0; i<k; i++){
+        for(j=0;j<n;j++){
+            groupOfClusters[i][j] = 0.0;
+        }
+    }
+    algorithm(clusters,inputMat,groupOfClusters, epsilon);
+
+    /*
+     * freeing memory
+     */
+    freeMemory(groupOfClusters, k);
+    return inputMat;
+}
+
+void algorithm(double** clusters, double** inputMat, double** GroupOfClusters, double epsilon){
+    int numOfItr=0;
+    int x_i;
+    int m_i;
+    int index;
+    while (numOfItr < max_itr){
+        if(normMat(clusters, epsilon)==1){
+            break;
+        }
+        resetMat(k,n,GroupOfClusters);
+        /*
+         * for xi, 0 < i ≤ N:
+         *  Assign xi to the closest cluster Sj : argmin_Sj(xi − µj )^2 , ∀j 1 ≤ j ≤ K
+         *  0 < index ≤ K
+         */
+        for(x_i=0;x_i<n;x_i++){
+            index = minIndex(clusters, inputMat[x_i]);
+            GroupOfClusters[index][x_i] = 10;
+        }
+        /*
+         * for µk, 0 < i ≤ K:
+         *  we want to change clusters[i] , 0< i <= k
+         */
+        for(m_i=0;m_i<k;m_i++){
+            update(clusters[m_i], GroupOfClusters[m_i], inputMat);
+        }
+        numOfItr++;
+    }
+
+}
+int normMat(double** matrix, double epsilon){
+    int i;
+    for(i=0;i<k;i++){
+        if(calculateNorm(matrix[i]) > epsilon){
+            return 0;
+        }
+    }
+    return 1;
+}
+double calculateNorm(double* vector){
+    int i;
+    double sum=0.0;
+    double value;
+    for(i=0;i<d;i++){
+        sum = sum + pow(vector[i],2.0);
+    }
+    value = sqrt(sum);
+    return value;
+}
 
 
-def printMatrix(arr):
-    for i in range(0, len(arr)):
-        for j in range(0, len(arr[0])):
-            print(np.round(arr[i][j], 4), end="")
-            if j + 1 != len(arr[0]):
-                print(",", end="")
-        print()
+void resetMat(int row,int col,double** mat){
+    int i,j;
+    for(i=0;i<row;i++){
+        for(j=0;j<col;j++){
+            mat[i][j] = 0.0;
+        }
+    }
+}
 
+void sumVectors(double* vector1,double* vector2){
+    int i;
+    for(i=0;i<d;i++){
+        vector1[i] = vector1[i] + vector2[i];
+    }
+}
 
-def printIndex(matrix):
-    for i in range(0, len(matrix.astype(int))):
-        print(matrix.astype(int)[i], end="")
-        if i + 1 != len(matrix.astype(int)):
-            print(",", end="")
-    print()
+void avgVectors(double* vector1,int cnt){
+    int i;
+    if(cnt == 0){
+        return;
+    }
+    for(i=0;i<d;i++){
+        vector1[i] = vector1[i]/cnt;
+    }
+}
 
+void update(double* toChage,double* GroupOfClusters,double** inputMat){
+    int i;
+    int cnt=0;
+    /*
+     * fill tochange with 0.0
+     */
+    for(i=0;i<d;i++){
+        toChage[i]= 0.0;
+    }
+    for(i=0;i<n;i++){
+        if(GroupOfClusters[i] > 5){
+            cnt++;
+            sumVectors(toChage,inputMat[i]);
+        }
+    }
+    avgVectors(toChage,cnt);
+}
 
-# k := the number of clusters required.
-def execute(k, maxItr, epsilon, input_filename1, input_filename2):
-    # combine both input files by inner join using the first column in each file as a key
-    input_matrix = merge(input_filename1, input_filename2)
-    input_array = input_matrix.tolist()
-    # n := number of line of an input file = number of vectors = len(inputMat).
-    n = len(input_array)
-    # d := number of column of an input file.
-    d = len(input_array[0])
-    # Check if the data is correct
-    if (k >= n) or (maxItr < 0) or (k < 0):
-        print("Invalid Input! \n")
-    # centroids µ1, µ2, ... , µK ∈ R^d where 1<K<N.
-    centroids = buildCentroids(k, n, input_matrix)
+int minIndex(double** clusters, double* victor){
+    int minIndex=0;
+    double minDistance=DBL_MAX;
+    double tempMinDistance;
+    int i;
 
-    matrix = km.fit(k, maxItr, epsilon, n, d, input_array, centroids.tolist())
-    printMatrix(np.array(matrix))
+    for(i=0;i<k;i++){
+        tempMinDistance = distance(victor, clusters[i]);
+        if(tempMinDistance<minDistance) {
+            minIndex = i;
+            minDistance = tempMinDistance;
+        }
+    }
+    return minIndex;
+}
+double distance(double* vector1 , double* vector2){
+    int i;
+    double sum=0.0;
+    for(i=0; i < d; i++){
+        /*
+         * argmin_Sj(xi − µj)^2
+         */
+        sum = sum + pow((vector1[i] - vector2[i]), 2.0);
+    }
+    return sum;
+}
 
+/*
+ *  freeing 2-dimensional arrays
+ */
+void freeMemory(double** matrix ,int len){
+    int i;
+    if(matrix == NULL){
+        return;
+    }
+    for(i = 0; i < len ; i++){
+        if(matrix[i] == NULL){
+            continue;
+        }
+        free(matrix[i]);
+    }
+    free(matrix);
+}
 
-# main
-# sys.argv is the list of command-line arguments.
-# len(sys.argv) is the number of command-line arguments.
-# sys.argv[0] is the program i.e. the script name.
-input_argv = sys.argv
-input_argc = len(sys.argv)
-if input_argc == 6:
-    # update max_itr if needed
-    # (k, maxItr, epsilon, inputFile1, inputFile2)
-    execute(int(input_argv[1]), int(input_argv[2]), float(input_argv[3]), input_argv[4], input_argv[5])
-else:
-    # (k, epsilon, inputFile1, inputFile2)
-    execute(int(input_argv[1]), 300, float(input_argv[2]), input_argv[3], input_argv[4])
+/*
+ *  create 2-dimensional arrays
+ */
+double** createMat(int col, int row){
+    int i;
+    double ** matrix = (double**)malloc(col* sizeof(double *));
+    assert(matrix != NULL);
+    for(i=0;i<col;i++){
+        matrix[i]= (double*)malloc(row* sizeof(double ));
+        assert(matrix[i] != NULL);
+    }
+    return matrix;
+}

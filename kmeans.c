@@ -39,7 +39,6 @@ int d;
  * it has input PyObject *args from Python.
  */
 static PyObject* fit(PyObject *self, PyObject *args){
-    double epsilon;
     PyObject *_inputMat;
     PyObject *_clusters;
     PyObject *line;
@@ -47,6 +46,7 @@ static PyObject* fit(PyObject *self, PyObject *args){
     double obj;
     double **inputMat;
     double **clusters;
+    double epsilon;
     int i;
     int j;
 
@@ -92,7 +92,6 @@ static PyObject* fit(PyObject *self, PyObject *args){
     }
 
     clusters = calculateCentroids(epsilon, inputMat, clusters);
-    freeMemory(inputMat,n);
 
     result = PyList_New(k);
     if(result == NULL){
@@ -104,16 +103,14 @@ static PyObject* fit(PyObject *self, PyObject *args){
             return NULL;
         }
         for(j = 0 ; j < d ; j++) {
-            /*
-             * PyList_SetItem(line,j,PyFloat_FromDouble(clusters[i][j]));
-             */
-            PyList_SetItem(line,j,Py_BuildValue("d",clusters[i][j]));
+            PyList_SetItem(line,j,PyFloat_FromDouble(clusters[i][j]));
         }
         PyList_SetItem(result, i, line);
     }
 
+    freeMemory(inputMat,n);
     freeMemory(clusters,k);
-    return result;
+    return Py_BuildValue("O", result);
 }
 
 static PyMethodDef myMethods[] = {
@@ -139,7 +136,7 @@ PyMODINIT_FUNC PyInit_mykmeanssp(void) {
     return m;
 }
 
-double** calculateCentroids(double epsilon, double** inputMat, double** clusters) {
+double** calculateCentroids(double epsilon, double** inputMat, double** clusters){
     int i,j;
     /*
      *  groupOfClusters := group of clusters by S1,...,SK, each cluster Sj is represented by it’s
@@ -163,7 +160,7 @@ double** calculateCentroids(double epsilon, double** inputMat, double** clusters
      * freeing memory
      */
     freeMemory(groupOfClusters, k);
-    return inputMat;
+    return clusters;
 }
 
 void algorithm(double** clusters, double** inputMat, double** GroupOfClusters, double epsilon){
